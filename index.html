@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AI Text Detector & Humanizer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e8eaed;
+    --muted: #9aa2b1;
+    --accent: #7c9dff;
+    --accent-2: #63e6be;
+    --danger: #ff6b6b;
+    --warn: #ffd43b;
+    --good: #63e6be;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(180deg, #0f1115 0%, #12151c 100%);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    padding: 28px 24px 8px;
+    text-align: center;
+  }
+  header h1 {
+    margin: 0 0 6px;
+    font-size: 1.8rem;
+    letter-spacing: -0.02em;
+  }
+  header h1 span {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px 20px 60px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 860px) {
+    .container { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    min-height: 420px;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .panel-header h2 {
+    font-size: 1.05rem;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .badge {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  textarea {
+    width: 100%;
+    flex: 1;
+    min-height: 220px;
+    resize: vertical;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    font-family: inherit;
+  }
+  textarea:focus { outline: 1px solid var(--accent); }
+  .row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: transform 0.1s ease, opacity 0.15s ease;
+  }
+  button:active { transform: scale(0.97); }
+  .btn-primary {
+    background: linear-gradient(90deg, var(--accent), #5b7fff);
+    color: #0b0d12;
+  }
+  .btn-secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .result-block {
+    margin-top: 14px;
+    display: none;
+  }
+  .result-block.show { display: block; }
+
+  .gauge-wrap {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .gauge {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    flex-shrink: 0;
+  }
+  .gauge svg { transform: rotate(-90deg); }
+  .gauge-label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.05rem;
+  }
+  .verdict { flex: 1; }
+  .verdict-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    margin-bottom: 2px;
+  }
+  .verdict-sub {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.8rem;
+  }
+  .metric {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .metric .k { color: var(--muted); display: block; margin-bottom: 2px; }
+  .metric .v { font-weight: 700; }
+
+  .flags {
+    margin-top: 10px;
+    max-height: 130px;
+    overflow-y: auto;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .flags ul { margin: 6px 0 0; padding-left: 18px; }
+  .flags li { margin-bottom: 4px; }
+
+  mark.ai-flag {
+    background: rgba(255, 107, 107, 0.25);
+    color: #ffb3b3;
+    border-radius: 3px;
+    padding: 0 2px;
+  }
+
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.78rem;
+    padding: 10px 20px 30px;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #0b0d12;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.25s ease;
+    z-index: 50;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>AI Text Detector</span> &amp; Humanizer</h1>
+  <p>Paste text to estimate how "AI-generated" it reads, then rewrite it to sound more human. Runs entirely in your browser.</p>
+</header>
+
+<div class="container">
+  <!-- Detector Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>🔍 Detector</h2>
+      <span class="badge">heuristic analysis</span>
+    </div>
+    <textarea id="inputText" placeholder="Paste text here to analyze..."></textarea>
+    <div class="row">
+      <button class="btn-primary" id="analyzeBtn">Analyze Text</button>
+      <button class="btn-ghost" id="clearBtn">Clear</button>
+      <button class="btn-secondary" id="sampleBtn">Load Sample</button>
+    </div>
+
+    <div class="result-block" id="detectorResult">
+      <div class="gauge-wrap">
+        <div class="gauge">
+          <svg width="84" height="84" viewBox="0 0 84 84">
+            <circle cx="42" cy="42" r="36" stroke="#2a2f3a" stroke-width="8" fill="none"/>
+            <circle id="gaugeArc" cx="42" cy="42" r="36" stroke="var(--accent)" stroke-width="8" fill="none"
+                    stroke-linecap="round" stroke-dasharray="226" stroke-dashoffset="226"/>
+          </svg>
+          <div class="gauge-label" id="gaugeLabel">0%</div>
+        </div>
+        <div class="verdict">
+          <div class="verdict-title" id="verdictTitle">—</div>
+          <div class="verdict-sub" id="verdictSub">Run an analysis to see results.</div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><span class="k">Avg sentence length</span><span class="v" id="mAvgLen">—</span></div>
+        <div class="metric"><span class="k">Sentence variety</span><span class="v" id="mBurst">—</span></div>
+        <div class="metric"><span class="k">Lexical diversity</span><span class="v" id="mLex">—</span></div>
+        <div class="metric"><span class="k">Cliché phrases found</span><span class="v" id="mCliche">—</span></div>
+      </div>
+
+      <div class="flags" id="flagsBlock" style="display:none;">
+        <strong>Flagged signals:</strong>
+        <ul id="flagsList"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Humanizer Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>✍️ Humanizer</h2>
+      <span class="badge">rewrite engine</span>
+    </div>
+    <textarea id="outputText" placeholder="Humanized text will appear here..." readonly></textarea>
+    <div class="row">
+      <button class="btn-primary" id="humanizeBtn">Humanize Text</button>
+      <button class="btn-secondary" id="copyBtn">Copy Output</button>
+      <button class="btn-ghost" id="useOutputBtn">Re-analyze Output</button>
+    </div>
+
+    <div class="result-block" id="humanizerResult">
+      <div class="gauge-wrap">
+        <div class="gauge">
+          <svg width="84" height="84" viewBox="0 0 84 84">
+            <circle cx="42" cy="42" r="36" stroke="#2a2f3a" stroke-width="8" fill="none"/>
+            <circle id="gaugeArc2" cx="42" cy="42" r="36" stroke="var(--good)" stroke-width="8" fill="none"
+                    stroke-linecap="round" stroke-dasharray="226" stroke-dashoffset="226"/>
+          </svg>
+          <div class="gauge-label" id="gaugeLabel2">0%</div>
+        </div>
+        <div class="verdict">
+          <div class="verdict-title" id="verdictTitle2">—</div>
+          <div class="verdict-sub" id="verdictSub2">Humanize text to see the new score.</div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><span class="k">Changes made</span><span class="v" id="mChanges">—</span></div>
+        <div class="metric"><span class="k">Score improvement</span><span class="v" id="mDelta">—</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Client-side heuristic tool for educational/writing-assistant purposes. Not a guaranteed AI-detection oracle —
+  no such tool is 100% accurate. Always disclose AI assistance where required.
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Shared data ----------
+  const CLICHE_PHRASES = [
+    "in conclusion", "in summary", "it is important to note", "it's important to note",
+    "it is worth noting", "delve into", "dive into", "in today's world", "in today's fast-paced world",
+    "plays a crucial role", "plays a vital role", "in the realm of", "furthermore", "moreover",
+    "as an ai language model", "as a language model", "on the other hand", "at the end of the day",
+    "unlock the potential", "unleash the power", "landscape of", "navigate the complexities",
+    "it's essential to", "it is essential to", "a testament to", "in light of", "shed light on",
+    "let's dive in", "in a nutshell", "when it comes to", "the world of", "cutting-edge",
+    "seamlessly", "robust", "leverage", "utilize", "holistic", "paradigm shift", "synergy",
+    "game changer", "game-changer", "in this article, we will", "in this blog post",
+    "overall, ", "to summarize", "ultimately, ", "needless to say", "without a doubt",
+    "not only... but also", "it is crucial", "it's crucial", "foster a", "underscore the",
+    "embark on", "myriad of", "plethora of", "tapestry of", "whether you're", "in essence"
+  ];
+
+  const CASUAL_REPLACEMENTS = [
+    [/\bin conclusion,?\s*/gi, "So, "],
+    [/\bin summary,?\s*/gi, "To wrap up, "],
+    [/\bit is important to note that\s*/gi, "worth mentioning: "],
+    [/\bit's important to note that\s*/gi, "worth mentioning: "],
+    [/\bdelve into\b/gi, "dig into"],
+    [/\bdive into\b/gi, "get into"],
+    [/\bin today's fast-paced world,?\s*/gi, "these days, "],
+    [/\bin today's world,?\s*/gi, "nowadays, "],
+    [/\bplays a crucial role\b/gi, "matters a lot"],
+    [/\bplays a vital role\b/gi, "really matters"],
+    [/\bin the realm of\b/gi, "in"],
+    [/\bfurthermore,?\s*/gi, "also, "],
+    [/\bmoreover,?\s*/gi, "plus, "],
+    [/\bon the other hand,?\s*/gi, "then again, "],
+    [/\bat the end of the day,?\s*/gi, "honestly, "],
+    [/\bunlock the potential of\b/gi, "get the most out of"],
+    [/\bunleash the power of\b/gi, "make the most of"],
+    [/\bnavigate the complexities of\b/gi, "deal with"],
+    [/\bit's essential to\b/gi, "you really need to"],
+    [/\bit is essential to\b/gi, "you really need to"],
+    [/\ba testament to\b/gi, "a sign of"],
+    [/\bin light of\b/gi, "given"],
+    [/\bshed light on\b/gi, "explain"],
+    [/\bin a nutshell,?\s*/gi, "basically, "],
+    [/\bwhen it comes to\b/gi, "with"],
+    [/\bcutting-edge\b/gi, "brand-new"],
+    [/\bseamlessly\b/gi, "smoothly"],
+    [/\brobust\b/gi, "solid"],
+    [/\butilize\b/gi, "use"],
+    [/\butilizes\b/gi, "uses"],
+    [/\butilizing\b/gi, "using"],
+    [/\bholistic\b/gi, "well-rounded"],
+    [/\bparadigm shift\b/gi, "big change"],
+    [/\bsynergy\b/gi, "teamwork"],
+    [/\bgame[- ]changer\b/gi, "big deal"],
+    [/\boverall,?\s*/gi, "all in all, "],
+    [/\bto summarize,?\s*/gi, "so basically, "],
+    [/\bultimately,?\s*/gi, "in the end, "],
+    [/\bneedless to say,?\s*/gi, "obviously, "],
+    [/\bwithout a doubt,?\s*/gi, "no doubt, "],
+    [/\bit is crucial\b/gi, "it really matters"],
+    [/\bit's crucial\b/gi, "it really matters"],
+    [/\bfoster a\b/gi, "help build a"],
+    [/\bunderscore the\b/gi, "highlight the"],
+    [/\bembark on\b/gi, "start"],
+    [/\bmyriad of\b/gi, "a ton of"],
+    [/\bplethora of\b/gi, "lots of"],
+    [/\btapestry of\b/gi, "mix of"],
+    [/\bwhether you're\b/gi, "whether you're"],
+    [/\badditionally,?\s*/gi, "also, "],
+    [/\bconsequently,?\s*/gi, "so, "],
+    [/\btherefore,?\s*/gi, "so, "],
+    [/\bnevertheless,?\s*/gi, "still, "],
+    [/\bnonetheless,?\s*/gi, "even so, "],
+    [/\bin order to\b/gi, "to"],
+    [/\bdue to the fact that\b/gi, "because"],
+    [/\ba large number of\b/gi, "a lot of"],
+    [/\bfor the purpose of\b/gi, "to"],
+    [/\bin the event that\b/gi, "if"]
+  ];
+
+  const CONTRACTIONS = [
+    [/\bdo not\b/gi, "don't"],
+    [/\bdoes not\b/gi, "doesn't"],
+    [/\bdid not\b/gi, "didn't"],
+    [/\bis not\b/gi, "isn't"],
+    [/\bare not\b/gi, "aren't"],
+    [/\bwas not\b/gi, "wasn't"],
+    [/\bwere not\b/gi, "weren't"],
+    [/\bcannot\b/gi, "can't"],
+    [/\bcan not\b/gi, "can't"],
+    [/\bwill not\b/gi, "won't"],
+    [/\bwould not\b/gi, "wouldn't"],
+    [/\bshould not\b/gi, "shouldn't"],
+    [/\bcould not\b/gi, "couldn't"],
+    [/\bit is\b/gi, "it's"],
+    [/\bthat is\b/gi, "that's"],
+    [/\bthere is\b/gi, "there's"],
+    [/\bthey are\b/gi, "they're"],
+    [/\byou are\b/gi, "you're"],
+    [/\bwe are\b/gi, "we're"],
+    [/\bI am\b/g, "I'm"],
+    [/\bI have\b/g, "I've"],
+    [/\bwe have\b/gi, "we've"],
+    [/\bthey have\b/gi, "they've"],
+    [/\bwho is\b/gi, "who's"],
+    [/\blet us\b/gi, "let's"]
+  ];
+
+  const CONNECTORS = ["Honestly, ", "Look, ", "To be fair, ", "Here's the thing: ", "Real talk, ", "Frankly, "];
+
+  const SAMPLE_TEXT = "In today's fast-paced world, it is important to note that artificial intelligence plays a crucial role in shaping the future of technology. Furthermore, businesses must leverage cutting-edge solutions to navigate the complexities of the modern landscape. Moreover, it is essential to utilize robust strategies that foster innovation. In conclusion, organizations that embrace this paradigm shift will unlock the potential of a truly transformative synergy.";
+
+  // ---------- Analysis ----------
+  function splitSentences(text) {
+    return text
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
+      .filter(s => s.trim().length > 0);
+  }
+
+  function analyze(text) {
+    const clean = text.trim();
+    const result = {
+      score: 0, avgLen: 0, burstiness: 0, lexDiversity: 0,
+      clicheCount: 0, flags: [], sentences: [], flaggedIdx: new Set()
+    };
+    if (!clean) return result;
+
+    const sentences = splitSentences(clean);
+    result.sentences = sentences;
+    const wordsAll = clean.toLowerCase().match(/[a-z']+/g) || [];
+    const lens = sentences.map(s => (s.match(/[a-z']+/gi) || []).length).filter(n => n > 0);
+
+    const avgLen = lens.reduce((a, b) => a + b, 0) / (lens.length || 1);
+    const variance = lens.reduce((a, b) => a + (b - avgLen) ** 2, 0) / (lens.length || 1);
+    const stdDev = Math.sqrt(variance);
+    const cv = avgLen > 0 ? stdDev / avgLen : 0; // coefficient of variation -> "burstiness"
+
+    const uniqueWords = new Set(wordsAll);
+    const lexDiversity = wordsAll.length > 0 ? uniqueWords.size / wordsAll.length : 0;
+
+    let clicheHits = [];
+    const lowerText = clean.toLowerCase();
+    CLICHE_PHRASES.forEach(p => {
+      if (lowerText.includes(p)) clicheHits.push(p);
+    });
+
+    // Repeated sentence starters
+    const starters = sentences.map(s => (s.trim().split(/\s+/)[0] || "").toLowerCase());
+    const starterCounts = {};
+    starters.forEach(w => { starterCounts[w] = (starterCounts[w] || 0) + 1; });
+    const repeatedStarters = Object.entries(starterCounts).filter(([w, c]) => c >= 3 && w.length > 2);
+
+    // Scoring (0-100, higher = more likely AI-generated)
+    let score = 0;
+    // Low sentence-length variety (uniform sentence length) is a strong AI signal
+    if (cv < 0.25) score += 30;
+    else if (cv < 0.4) score += 15;
+    else score += 2;
+
+    // Cliche phrase density
+    const clicheScore = Math.min(35, clicheHits.length * 7);
+    score += clicheScore;
+
+    // Lexical diversity: AI text often has moderate-high diversity but very formulaic;
+    // very low diversity (repetitive) also flags
+    if (lexDiversity < 0.4) score += 15;
+    else if (lexDiversity < 0.55) score += 8;
+
+    // Repeated sentence starters
+    score += Math.min(15, repeatedStarters.length * 8);
+
+    // Average sentence length very long & uniform (formal AI tone)
+    if (avgLen > 22 && cv < 0.35) score += 10;
+
+    score = Math.max(2, Math.min(98, Math.round(score)));
+
+    result.score = score;
+    result.avgLen = avgLen.toFixed(1);
+    result.burstiness = cv.toFixed(2);
+    result.lexDiversity = (lexDiversity * 100).toFixed(0) + "%";
+    result.clicheCount = clicheHits.length;
+
+    if (clicheHits.length > 0) {
+      result.flags.push(`Contains ${clicheHits.length} common AI-style phrase${clicheHits.length > 1 ? "s" : ""}: "${clicheHits.slice(0, 5).join('", "')}"${clicheHits.length > 5 ? ", ..." : ""}`);
+    }
+    if (cv < 0.25) {
+      result.flags.push("Sentence lengths are unusually uniform (low burstiness) — a common trait of machine-generated text.");
+    }
+    if (repeatedStarters.length > 0) {
+      result.flags.push(`Repeated sentence-starting words: ${repeatedStarters.map(([w]) => `"${w}"`).join(", ")}.`);
+    }
+    if (lexDiversity < 0.4 && wordsAll.length > 20) {
+      result.flags.push("Low vocabulary variety relative to text length.");
+    }
+    if (result.flags.length === 0) {
+      result.flags.push("No strong AI-style signals detected — text reads with natural variation.");
+    }
+
+    // Mark sentences containing cliche phrases for highlighting
+    sentences.forEach((s, i) => {
+      const ls = s.toLowerCase();
+      if (CLICHE_PHRASES.some(p => ls.includes(p))) result.flaggedIdx.add(i);
+    });
+
+    return result;
+  }
+
+  function verdictFor(score) {
+    if (score >= 70) return { title: "Likely AI-generated", sub: "Strong signals of machine-generated patterns.", color: "var(--danger)" };
+    if (score >= 40) return { title: "Possibly AI-assisted", sub: "Mixed signals — could be edited or partially AI-written.", color: "var(--warn)" };
+    return { title: "Likely human-written", sub: "Reads with natural variation and few AI-style cues.", color: "var(--good)" };
+  }
+
+  function setGauge(arcEl, labelEl, score, color) {
+    const circumference = 226; // 2*pi*36 ≈ 226.2
+    const offset = circumference - (score / 100) * circumference;
+    arcEl.style.stroke = color;
+    arcEl.style.transition = "stroke-dashoffset 0.6s ease, stroke 0.3s ease";
+    requestAnimationFrame(() => { arcEl.style.strokeDashoffset = offset; });
+    labelEl.textContent = score + "%";
+  }
+
+  // ---------- Humanizer ----------
+  function humanize(text) {
+    let out = text;
+    let changeCount = 0;
+
+    CASUAL_REPLACEMENTS.forEach(([re, rep]) => {
+      const matches = out.match(re);
+      if (matches) changeCount += matches.length;
+      out = out.replace(re, rep);
+    });
+
+    CONTRACTIONS.forEach(([re, rep]) => {
+      const matches = out.match(re);
+      if (matches) changeCount += matches.length;
+      out = out.replace(re, rep);
+    });
+
+    // Split into sentences, vary rhythm, occasionally add a casual connector
+    let sentences = splitSentences(out);
+    sentences = sentences.map((s, i) => {
+      let sent = s.trim();
+
+      // Break up long sentences (>28 words) at a natural conjunction point
+      const words = sent.split(/\s+/);
+      if (words.length > 28) {
+        const midPoint = Math.floor(words.length / 2);
+        let splitAt = -1;
+        for (let j = midPoint - 5; j < midPoint + 5 && j < words.length; j++) {
+          if (j > 0 && /^(and|but|which|so|because)$/i.test(words[j])) { splitAt = j; break; }
+        }
+        if (splitAt > 0) {
+          const first = words.slice(0, splitAt).join(" ").replace(/[,;]$/, "");
+          let second = words.slice(splitAt).join(" ");
+          second = second.replace(/^(and|but|which|so|because)\s+/i, "");
+          second = second.charAt(0).toUpperCase() + second.slice(1);
+          sent = first + ". " + second;
+          changeCount++;
+        }
+      }
+
+      // Occasionally prepend a casual connector (not on first sentence, ~1 in 4)
+      if (i > 0 && i % 4 === 0 && sent.length > 20) {
+        const connector = CONNECTORS[i % CONNECTORS.length];
+        sent = connector + sent.charAt(0).toLowerCase() + sent.slice(1);
+        changeCount++;
+      }
+
+      return sent;
+    });
+
+    out = sentences.join(" ");
+
+    // Reduce triple-adjective / overly formal em-dash usage
+    out = out.replace(/—/g, () => (Math.random() > 0.5 ? ", " : " - "));
+
+    // Collapse extra spaces
+    out = out.replace(/\s{2,}/g, " ").trim();
+
+    return { text: out, changeCount };
+  }
+
+  // ---------- DOM wiring ----------
+  const inputText = document.getElementById("inputText");
+  const outputText = document.getElementById("outputText");
+  const analyzeBtn = document.getElementById("analyzeBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const sampleBtn = document.getElementById("sampleBtn");
+  const humanizeBtn = document.getElementById("humanizeBtn");
+  const copyBtn = document.getElementById("copyBtn");
+  const useOutputBtn = document.getElementById("useOutputBtn");
+  const toast = document.getElementById("toast");
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), 1800);
+  }
+
+  function renderDetectorResult(result) {
+    const block = document.getElementById("detectorResult");
+    block.classList.add("show");
+    const v = verdictFor(result.score);
+    setGauge(document.getElementById("gaugeArc"), document.getElementById("gaugeLabel"), result.score, v.color);
+    document.getElementById("verdictTitle").textContent = v.title;
+    document.getElementById("verdictTitle").style.color = v.color;
+    document.getElementById("verdictSub").textContent = v.sub;
+    document.getElementById("mAvgLen").textContent = result.avgLen + " words";
+    document.getElementById("mBurst").textContent = result.burstiness < 0.25 ? "Low (" + result.burstiness + ")" : result.burstiness < 0.4 ? "Medium (" + result.burstiness + ")" : "High (" + result.burstiness + ")";
+    document.getElementById("mLex").textContent = result.lexDiversity;
+    document.getElementById("mCliche").textContent = result.clicheCount;
+
+    const flagsBlock = document.getElementById("flagsBlock");
+    const flagsList = document.getElementById("flagsList");
+    flagsList.innerHTML = "";
+    result.flags.forEach(f => {
+      const li = document.createElement("li");
+      li.textContent = f;
+      flagsList.appendChild(li);
+    });
+    flagsBlock.style.display = "block";
+    return result;
+  }
+
+  let lastScore = null;
+
+  analyzeBtn.addEventListener("click", () => {
+    const text = inputText.value;
+    if (!text.trim()) { showToast("Paste some text first."); return; }
+    analyzeBtn.disabled = true;
+    analyzeBtn.innerHTML = '<span class="spinner"></span>Analyzing...';
+    setTimeout(() => {
+      const result = analyze(text);
+      renderDetectorResult(result);
+      lastScore = result.score;
+      analyzeBtn.disabled = false;
+      analyzeBtn.textContent = "Analyze Text";
+    }, 350);
+  });
+
+  clearBtn.addEventListener("click", () => {
+    inputText.value = "";
+    document.getElementById("detectorResult").classList.remove("show");
+    outputText.value = "";
+    document.getElementById("humanizerResult").classList.remove("show");
+    lastScore = null;
+  });
+
+  sampleBtn.addEventListener("click", () => {
+    inputText.value = SAMPLE_TEXT;
+    showToast("Sample text loaded.");
+  });
+
+  humanizeBtn.addEventListener("click", () => {
+    const text = inputText.value;
+    if (!text.trim()) { showToast("Paste text in the detector box first."); return; }
+    humanizeBtn.disabled = true;
+    humanizeBtn.innerHTML = '<span class="spinner"></span>Rewriting...';
+    setTimeout(() => {
+      const { text: humanized, changeCount } = humanize(text);
+      outputText.value = humanized;
+
+      const before = lastScore !== null ? lastScore : analyze(text).score;
+      const after = analyze(humanized);
+      const block = document.getElementById("humanizerResult");
+      block.classList.add("show");
+      const v = verdictFor(after.score);
+      setGauge(document.getElementById("gaugeArc2"), document.getElementById("gaugeLabel2"), after.score, v.color);
+      document.getElementById("verdictTitle2").textContent = v.title;
+      document.getElementById("verdictTitle2").style.color = v.color;
+      document.getElementById("verdictSub2").textContent = v.sub;
+      document.getElementById("mChanges").textContent = changeCount + " edits";
+      const delta = before - after.score;
+      document.getElementById("mDelta").textContent = (delta >= 0 ? "-" : "+") + Math.abs(delta) + " pts";
+
+      humanizeBtn.disabled = false;
+      humanizeBtn.textContent = "Humanize Text";
+    }, 400);
+  });
+
+  copyBtn.addEventListener("click", async () => {
+    if (!outputText.value.trim()) { showToast("Nothing to copy yet."); return; }
+    try {
+      await navigator.clipboard.writeText(outputText.value);
+      showToast("Copied to clipboard!");
+    } catch (e) {
+      outputText.select();
+      document.execCommand("copy");
+      showToast("Copied to clipboard!");
+    }
+  });
+
+  useOutputBtn.addEventListener("click", () => {
+    if (!outputText.value.trim()) { showToast("Humanize some text first."); return; }
+    inputText.value = outputText.value;
+    analyzeBtn.click();
+  });
+})();
+</script>
+</body>
+</html>
