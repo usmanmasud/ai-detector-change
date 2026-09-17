@@ -336,6 +336,47 @@
     line-height: 1.35;
   }
 
+  .highlight-toggle-row { margin-top: 12px; }
+  .highlight-view {
+    display: none;
+    margin-top: 10px;
+    max-height: 340px;
+    overflow-y: auto;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 0.85rem;
+    line-height: 1.65;
+  }
+  .highlight-view.show { display: block; }
+  .highlight-view p { margin: 0 0 12px; }
+  .highlight-view mark.hl-high {
+    background: rgba(255, 107, 107, 0.28);
+    color: #ffc9c9;
+    border-radius: 3px;
+    padding: 0 2px;
+    cursor: help;
+  }
+  .highlight-view mark.hl-med {
+    background: rgba(255, 212, 59, 0.22);
+    color: #ffe38a;
+    border-radius: 3px;
+    padding: 0 2px;
+    cursor: help;
+  }
+  .highlight-view .hl-unscanned { opacity: 0.45; }
+  .highlight-legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .highlight-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
   footer {
     text-align: center;
     color: var(--muted);
@@ -451,6 +492,18 @@
       <div class="sections" id="sectionsBlock" style="display:none;">
         <div class="sections-title">Most AI-flagged sections</div>
         <div id="sectionsRows"></div>
+      </div>
+
+      <div class="highlight-toggle-row">
+        <button class="btn-secondary" id="highlightToggleBtn">🔦 Show Highlighted Document</button>
+      </div>
+      <div class="highlight-view" id="highlightView">
+        <div class="highlight-legend">
+          <span><span class="legend-dot" style="background:rgba(255,107,107,0.8)"></span>Likely AI-written</span>
+          <span><span class="legend-dot" style="background:rgba(255,212,59,0.8)"></span>Possibly AI-assisted</span>
+          <span><span class="legend-dot" style="background:transparent;border:1px solid var(--border)"></span>Likely human-written</span>
+        </div>
+        <div id="highlightContent"></div>
       </div>
     </div>
   </div>
@@ -670,6 +723,38 @@
     return t.length > len ? t.slice(0, len) + "…" : t;
   }
 
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Renders the full document as HTML with each sentence wrapped in a
+  // color-coded <mark> based on its own AI-likelihood score. sentenceScores
+  // is a flat, document-order array of {text, score}; when it covers only a
+  // prefix of the document (deep-scan truncation), remaining sentences are
+  // shown dimmed and unscored rather than guessed at.
+  function buildHighlightedHtml(fullText, sentenceScores) {
+    const paragraphs = fullText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    let ptr = 0;
+    const htmlParas = paragraphs.map(para => {
+      const sents = splitSentences(para);
+      if (sents.length === 0) return "";
+      const spans = sents.map(sent => {
+        const rec = ptr < sentenceScores.length ? sentenceScores[ptr] : null;
+        ptr++;
+        const displayText = rec ? rec.text : sent;
+        const escaped = escapeHtml(displayText);
+        if (!rec) return `<span class="hl-unscanned">${escaped}</span> `;
+        const scoreVal = rec.score;
+        if (scoreVal === null || scoreVal === undefined) return escaped + " ";
+        if (scoreVal >= 60) return `<mark class="hl-high" title="AI-likelihood: ${scoreVal}%">${escaped}</mark> `;
+        if (scoreVal >= 35) return `<mark class="hl-med" title="AI-likelihood: ${scoreVal}%">${escaped}</mark> `;
+        return escaped + " ";
+      });
+      return "<p>" + spans.join("") + "</p>";
+    });
+    return htmlParas.join("");
+  }
+
   // ==================================================================
   // Document upload — parsed 100% client-side, nothing leaves the browser
   // ==================================================================
@@ -841,13 +926,27 @@
     return flags;
   }
 
+  function scoreSentenceHeuristic(sentence, docAvgLen) {
+    let score = 0;
+    const lower = sentence.toLowerCase();
+    if (CLICHE_PHRASES.some(p => lower.includes(p))) score += 35;
+    if (/\b(am|is|are|was|were|be|been|being)\s+\w+(ed|en)\b/i.test(sentence)) score += 15;
+    if (TRANSITION_WORDS.some(t => lower.trim().startsWith(t))) score += 15;
+    if (/—/.test(sentence)) score += 10;
+    const len = words(sentence).length;
+    if (docAvgLen > 0 && len > 0 && Math.abs(len - docAvgLen) / docAvgLen < 0.15) score += 15;
+    if (len >= 6 && !/'/.test(sentence) && (/\butilize|leverage|robust|holistic|synerg/i.test(sentence))) score += 10;
+    return clamp(score, 0, 98);
+  }
+
   function analyze(text) {
     const clean = text.trim();
-    if (!clean) return { score: 0, breakdown: [], flags: ["No text provided."], method: "heuristic" };
+    if (!clean) return { score: 0, breakdown: [], flags: ["No text provided."], method: "heuristic", sentenceScores: [] };
     const f = extractFeatures(clean);
     const { score, breakdown } = scoreFromFeatures(f);
     const flags = buildFlags(f);
-    return { score, breakdown, flags, method: "heuristic", features: f };
+    const sentenceScores = f.sentences.map(s => ({ text: s, score: scoreSentenceHeuristic(s, f.avgLen) }));
+    return { score, breakdown, flags, method: "heuristic", features: f, sentenceScores };
   }
 
   function verdictFor(score) {
@@ -924,7 +1023,7 @@
     const meanNll = mean(nlls);
     const perplexity = Math.exp(meanNll);
     const burstiness = stdev(nlls);
-    return { perplexity, burstiness, tokenCount: seqLen };
+    return { perplexity, burstiness, tokenCount: seqLen, nlls };
   }
 
   const MAX_DEEP_SCAN_CHUNKS = 40; // ~40 * 300 words ≈ 12,000 words per scan
@@ -940,11 +1039,30 @@
     }
 
     const chunkResults = [];
+    const sentenceScores = [];
     for (let i = 0; i < chunks.length; i++) {
       onProgress({ phase: "analyze", index: i + 1, total: chunks.length });
-      const { perplexity, burstiness, tokenCount } = await computePerplexity(chunks[i], tokenizer, model);
+      const { perplexity, burstiness, tokenCount, nlls } = await computePerplexity(chunks[i], tokenizer, model);
       const mlScore = clamp(Math.round(0.65 * ppxToScore(perplexity) + 0.35 * burstToScore(burstiness)), 2, 98);
       chunkResults.push({ index: i, text: chunks[i], perplexity, burstiness, mlScore, tokenCount });
+
+      // Attribute token-level NLLs back to individual sentences within this chunk
+      const chunkSentences = splitSentences(chunks[i]);
+      let tIdx = 0;
+      chunkSentences.forEach(sent => {
+        let n;
+        try { n = tokenizer(sent).input_ids.data.length; }
+        catch (e) { n = Math.max(1, Math.round(words(sent).length * 1.3)); }
+        n = Math.min(n, Math.max(0, nlls.length - tIdx));
+        if (n > 0) {
+          const segMean = mean(nlls.slice(tIdx, tIdx + n));
+          tIdx += n;
+          const segScore = clamp(Math.round(ppxToScore(Math.exp(segMean))), 2, 98);
+          sentenceScores.push({ text: sent, score: segScore });
+        } else {
+          sentenceScores.push({ text: sent, score: null });
+        }
+      });
     }
 
     const totalTokens = chunkResults.reduce((a, c) => a + c.tokenCount, 0) || 1;
@@ -953,7 +1071,7 @@
     const mlScore = clamp(Math.round(chunkResults.reduce((a, c) => a + c.mlScore * c.tokenCount, 0) / totalTokens), 2, 98);
     const topChunks = [...chunkResults].sort((a, b) => b.mlScore - a.mlScore).slice(0, 3);
 
-    return { perplexity, burstiness, mlScore, chunkResults, topChunks, truncated, chunkCount: chunks.length };
+    return { perplexity, burstiness, mlScore, chunkResults, topChunks, truncated, chunkCount: chunks.length, sentenceScores };
   }
 
   // ==================================================================
@@ -1114,10 +1232,33 @@
     });
     flagsBlock.style.display = "block";
     renderSections(result.sections);
+
+    lastFullText = result.fullText || null;
+    lastSentenceScores = result.sentenceScores || null;
+    document.getElementById("highlightView").classList.remove("show");
+    document.getElementById("highlightToggleBtn").textContent = "🔦 Show Highlighted Document";
   }
 
   let lastScore = null;
   let lastHeuristic = null;
+  let lastFullText = null;
+  let lastSentenceScores = null;
+
+  const highlightToggleBtn = document.getElementById("highlightToggleBtn");
+  const highlightView = document.getElementById("highlightView");
+  const highlightContent = document.getElementById("highlightContent");
+
+  highlightToggleBtn.addEventListener("click", () => {
+    if (highlightView.classList.contains("show")) {
+      highlightView.classList.remove("show");
+      highlightToggleBtn.textContent = "🔦 Show Highlighted Document";
+      return;
+    }
+    if (!lastFullText || !lastSentenceScores) { showToast("Run an analysis first."); return; }
+    highlightContent.innerHTML = buildHighlightedHtml(lastFullText, lastSentenceScores);
+    highlightView.classList.add("show");
+    highlightToggleBtn.textContent = "🔦 Hide Highlighted Document";
+  });
 
   analyzeBtn.addEventListener("click", () => {
     const text = inputText.value;
@@ -1126,6 +1267,7 @@
     analyzeBtn.innerHTML = '<span class="spinner"></span>Analyzing...';
     setTimeout(() => {
       const result = analyze(text);
+      result.fullText = text;
       const paragraphs = splitParagraphs(text);
       if (paragraphs.length >= 3) {
         result.sections = paragraphs
@@ -1185,7 +1327,9 @@
         flags,
         method: "combined",
         ml,
-        sections: ml.chunkCount >= 2 ? ml.topChunks.map(c => ({ text: c.text, score: c.mlScore })) : null
+        sections: ml.chunkCount >= 2 ? ml.topChunks.map(c => ({ text: c.text, score: c.mlScore })) : null,
+        sentenceScores: ml.sentenceScores,
+        fullText: text
       };
       renderDetectorResult(combined);
       lastScore = combined.score;
@@ -1194,6 +1338,7 @@
       console.error(err);
       showToast("Deep scan unavailable (offline, blocked, or unsupported browser) — showing heuristic score instead.");
       const heuristic = lastHeuristic || analyze(text);
+      heuristic.fullText = text;
       renderDetectorResult(heuristic);
       lastScore = heuristic.score;
     } finally {
@@ -1213,6 +1358,10 @@
     fileInput.value = "";
     lastScore = null;
     lastHeuristic = null;
+    lastFullText = null;
+    lastSentenceScores = null;
+    highlightView.classList.remove("show");
+    highlightToggleBtn.textContent = "🔦 Show Highlighted Document";
   });
 
   async function handleFile(file) {
