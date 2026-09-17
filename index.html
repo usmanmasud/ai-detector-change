@@ -47,6 +47,17 @@
     color: var(--muted);
     font-size: 0.95rem;
   }
+  .disclaimer-bar {
+    max-width: 1100px;
+    margin: 14px auto 0;
+    padding: 10px 16px;
+    background: rgba(255, 212, 59, 0.08);
+    border: 1px solid rgba(255, 212, 59, 0.3);
+    border-radius: 10px;
+    font-size: 0.78rem;
+    color: #e8d98a;
+    text-align: center;
+  }
   .container {
     max-width: 1100px;
     margin: 0 auto;
@@ -118,6 +129,10 @@
     background: linear-gradient(90deg, var(--accent), #5b7fff);
     color: #0b0d12;
   }
+  .btn-ml {
+    background: linear-gradient(90deg, var(--accent-2), #3bc99a);
+    color: #0b0d12;
+  }
   .btn-secondary {
     background: var(--panel-2);
     color: var(--text);
@@ -129,6 +144,33 @@
     border: 1px solid var(--border);
   }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .progress-wrap {
+    display: none;
+    margin-top: 10px;
+  }
+  .progress-wrap.show { display: block; }
+  .progress-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .progress-bar-bg {
+    width: 100%;
+    height: 8px;
+    background: var(--panel-2);
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    transition: width 0.25s ease;
+  }
 
   .result-block {
     margin-top: 14px;
@@ -168,8 +210,48 @@
     color: var(--muted);
     font-size: 0.85rem;
   }
+  .method-tag {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 0.68rem;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--accent-2);
+  }
 
-  .metrics {
+  .breakdown {
+    margin-top: 12px;
+    font-size: 0.78rem;
+  }
+  .breakdown-title {
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .bd-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 34px;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+  }
+  .bd-label { color: var(--muted); font-size: 0.74rem; }
+  .bd-bar-bg {
+    height: 6px;
+    background: var(--panel-2);
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .bd-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--danger));
+  }
+  .bd-val { text-align: right; font-size: 0.72rem; color: var(--text); }
+
+  .ml-metrics {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
@@ -187,20 +269,13 @@
 
   .flags {
     margin-top: 10px;
-    max-height: 130px;
+    max-height: 110px;
     overflow-y: auto;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--muted);
   }
   .flags ul { margin: 6px 0 0; padding-left: 18px; }
   .flags li { margin-bottom: 4px; }
-
-  mark.ai-flag {
-    background: rgba(255, 107, 107, 0.25);
-    color: #ffb3b3;
-    border-radius: 3px;
-    padding: 0 2px;
-  }
 
   footer {
     text-align: center;
@@ -237,6 +312,8 @@
     pointer-events: none;
     transition: all 0.25s ease;
     z-index: 50;
+    max-width: 80vw;
+    text-align: center;
   }
   .toast.show {
     opacity: 1;
@@ -249,19 +326,28 @@
   <h1><span>AI Text Detector</span> &amp; Humanizer</h1>
   <p>Paste text to estimate how "AI-generated" it reads, then rewrite it to sound more human. Runs entirely in your browser.</p>
 </header>
+<div class="disclaimer-bar">
+  ⚠️ This is a research-style estimator (statistical heuristics + an optional in-browser language-model perplexity check), not the proprietary system used by Turnitin or similar institutional tools. Treat scores as directional signals, never as proof.
+</div>
 
 <div class="container">
   <!-- Detector Panel -->
   <div class="panel">
     <div class="panel-header">
       <h2>🔍 Detector</h2>
-      <span class="badge">heuristic analysis</span>
+      <span class="badge">heuristics + optional ML</span>
     </div>
     <textarea id="inputText" placeholder="Paste text here to analyze..."></textarea>
     <div class="row">
-      <button class="btn-primary" id="analyzeBtn">Analyze Text</button>
+      <button class="btn-primary" id="analyzeBtn">Quick Analyze</button>
+      <button class="btn-ml" id="deepScanBtn">Deep Scan (ML)</button>
       <button class="btn-ghost" id="clearBtn">Clear</button>
       <button class="btn-secondary" id="sampleBtn">Load Sample</button>
+    </div>
+
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-label"><span id="progressLabel">Loading model...</span><span id="progressPct">0%</span></div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
     </div>
 
     <div class="result-block" id="detectorResult">
@@ -277,18 +363,22 @@
         <div class="verdict">
           <div class="verdict-title" id="verdictTitle">—</div>
           <div class="verdict-sub" id="verdictSub">Run an analysis to see results.</div>
+          <span class="method-tag" id="methodTag" style="display:none;"></span>
         </div>
       </div>
 
-      <div class="metrics">
-        <div class="metric"><span class="k">Avg sentence length</span><span class="v" id="mAvgLen">—</span></div>
-        <div class="metric"><span class="k">Sentence variety</span><span class="v" id="mBurst">—</span></div>
-        <div class="metric"><span class="k">Lexical diversity</span><span class="v" id="mLex">—</span></div>
-        <div class="metric"><span class="k">Cliché phrases found</span><span class="v" id="mCliche">—</span></div>
+      <div class="breakdown" id="breakdownBlock">
+        <div class="breakdown-title">Signal breakdown</div>
+        <div id="breakdownRows"></div>
+      </div>
+
+      <div class="ml-metrics" id="mlMetrics" style="display:none;">
+        <div class="metric"><span class="k">Perplexity (ML)</span><span class="v" id="mPerplexity">—</span></div>
+        <div class="metric"><span class="k">Burstiness (ML)</span><span class="v" id="mMlBurst">—</span></div>
       </div>
 
       <div class="flags" id="flagsBlock" style="display:none;">
-        <strong>Flagged signals:</strong>
+        <strong>Notes:</strong>
         <ul id="flagsList"></ul>
       </div>
     </div>
@@ -322,7 +412,7 @@
           <div class="verdict-sub" id="verdictSub2">Humanize text to see the new score.</div>
         </div>
       </div>
-      <div class="metrics">
+      <div class="ml-metrics">
         <div class="metric"><span class="k">Changes made</span><span class="v" id="mChanges">—</span></div>
         <div class="metric"><span class="k">Score improvement</span><span class="v" id="mDelta">—</span></div>
       </div>
@@ -331,8 +421,9 @@
 </div>
 
 <footer>
-  Client-side heuristic tool for educational/writing-assistant purposes. Not a guaranteed AI-detection oracle —
-  no such tool is 100% accurate. Always disclose AI assistance where required.
+  Client-side estimator for educational/writing-assistant purposes. Not a guaranteed AI-detection oracle — no
+  such tool (including this one) is 100% accurate, and it does not replicate Turnitin or any institutional system.
+  Always follow your institution's academic integrity policy.
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -341,7 +432,9 @@
 (function () {
   "use strict";
 
-  // ---------- Shared data ----------
+  // ==================================================================
+  // Shared word lists
+  // ==================================================================
   const CLICHE_PHRASES = [
     "in conclusion", "in summary", "it is important to note", "it's important to note",
     "it is worth noting", "delve into", "dive into", "in today's world", "in today's fast-paced world",
@@ -353,9 +446,25 @@
     "seamlessly", "robust", "leverage", "utilize", "holistic", "paradigm shift", "synergy",
     "game changer", "game-changer", "in this article, we will", "in this blog post",
     "overall, ", "to summarize", "ultimately, ", "needless to say", "without a doubt",
-    "not only... but also", "it is crucial", "it's crucial", "foster a", "underscore the",
+    "it is crucial", "it's crucial", "foster a", "underscore the",
     "embark on", "myriad of", "plethora of", "tapestry of", "whether you're", "in essence"
   ];
+
+  const TRANSITION_WORDS = [
+    "furthermore", "moreover", "however", "therefore", "additionally", "consequently",
+    "thus", "hence", "subsequently", "nonetheless", "nevertheless", "meanwhile",
+    "accordingly", "henceforth", "in addition", "as a result", "on the other hand"
+  ];
+
+  const FUNCTION_WORDS = new Set([
+    "the","a","an","of","in","on","at","by","for","with","about","against","between","into",
+    "through","during","before","after","above","below","to","from","up","down","and","but",
+    "or","nor","so","yet","although","because","since","unless","while","if","is","are","was",
+    "were","be","been","being","have","has","had","do","does","did","will","would","shall",
+    "should","may","might","must","can","could","i","you","he","she","it","we","they","me",
+    "him","her","us","them","this","that","these","those","my","your","his","its","our","their",
+    "who","whom","which","what","not","no","as","than","then","there","here"
+  ]);
 
   const CASUAL_REPLACEMENTS = [
     [/\bin conclusion,?\s*/gi, "So, "],
@@ -406,7 +515,6 @@
     [/\bmyriad of\b/gi, "a ton of"],
     [/\bplethora of\b/gi, "lots of"],
     [/\btapestry of\b/gi, "mix of"],
-    [/\bwhether you're\b/gi, "whether you're"],
     [/\badditionally,?\s*/gi, "also, "],
     [/\bconsequently,?\s*/gi, "so, "],
     [/\btherefore,?\s*/gi, "so, "],
@@ -420,30 +528,14 @@
   ];
 
   const CONTRACTIONS = [
-    [/\bdo not\b/gi, "don't"],
-    [/\bdoes not\b/gi, "doesn't"],
-    [/\bdid not\b/gi, "didn't"],
-    [/\bis not\b/gi, "isn't"],
-    [/\bare not\b/gi, "aren't"],
-    [/\bwas not\b/gi, "wasn't"],
-    [/\bwere not\b/gi, "weren't"],
-    [/\bcannot\b/gi, "can't"],
-    [/\bcan not\b/gi, "can't"],
-    [/\bwill not\b/gi, "won't"],
-    [/\bwould not\b/gi, "wouldn't"],
-    [/\bshould not\b/gi, "shouldn't"],
-    [/\bcould not\b/gi, "couldn't"],
-    [/\bit is\b/gi, "it's"],
-    [/\bthat is\b/gi, "that's"],
-    [/\bthere is\b/gi, "there's"],
-    [/\bthey are\b/gi, "they're"],
-    [/\byou are\b/gi, "you're"],
-    [/\bwe are\b/gi, "we're"],
-    [/\bI am\b/g, "I'm"],
-    [/\bI have\b/g, "I've"],
-    [/\bwe have\b/gi, "we've"],
-    [/\bthey have\b/gi, "they've"],
-    [/\bwho is\b/gi, "who's"],
+    [/\bdo not\b/gi, "don't"], [/\bdoes not\b/gi, "doesn't"], [/\bdid not\b/gi, "didn't"],
+    [/\bis not\b/gi, "isn't"], [/\bare not\b/gi, "aren't"], [/\bwas not\b/gi, "wasn't"],
+    [/\bwere not\b/gi, "weren't"], [/\bcannot\b/gi, "can't"], [/\bcan not\b/gi, "can't"],
+    [/\bwill not\b/gi, "won't"], [/\bwould not\b/gi, "wouldn't"], [/\bshould not\b/gi, "shouldn't"],
+    [/\bcould not\b/gi, "couldn't"], [/\bit is\b/gi, "it's"], [/\bthat is\b/gi, "that's"],
+    [/\bthere is\b/gi, "there's"], [/\bthey are\b/gi, "they're"], [/\byou are\b/gi, "you're"],
+    [/\bwe are\b/gi, "we're"], [/\bI am\b/g, "I'm"], [/\bI have\b/g, "I've"],
+    [/\bwe have\b/gi, "we've"], [/\bthey have\b/gi, "they've"], [/\bwho is\b/gi, "who's"],
     [/\blet us\b/gi, "let's"]
   ];
 
@@ -451,101 +543,173 @@
 
   const SAMPLE_TEXT = "In today's fast-paced world, it is important to note that artificial intelligence plays a crucial role in shaping the future of technology. Furthermore, businesses must leverage cutting-edge solutions to navigate the complexities of the modern landscape. Moreover, it is essential to utilize robust strategies that foster innovation. In conclusion, organizations that embrace this paradigm shift will unlock the potential of a truly transformative synergy.";
 
-  // ---------- Analysis ----------
+  // ==================================================================
+  // Text utilities
+  // ==================================================================
   function splitSentences(text) {
-    return text
-      .replace(/\s+/g, " ")
-      .trim()
+    return text.replace(/\s+/g, " ").trim()
       .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
       .filter(s => s.trim().length > 0);
   }
 
-  function analyze(text) {
+  function words(text) {
+    return text.toLowerCase().match(/[a-z']+/g) || [];
+  }
+
+  function mean(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+  function stdev(arr) {
+    if (arr.length < 2) return 0;
+    const m = mean(arr);
+    return Math.sqrt(mean(arr.map(x => (x - m) ** 2)));
+  }
+  function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+  // ==================================================================
+  // Heuristic feature extraction
+  // ==================================================================
+  function extractFeatures(text) {
     const clean = text.trim();
-    const result = {
-      score: 0, avgLen: 0, burstiness: 0, lexDiversity: 0,
-      clicheCount: 0, flags: [], sentences: [], flaggedIdx: new Set()
-    };
-    if (!clean) return result;
-
     const sentences = splitSentences(clean);
-    result.sentences = sentences;
-    const wordsAll = clean.toLowerCase().match(/[a-z']+/g) || [];
-    const lens = sentences.map(s => (s.match(/[a-z']+/gi) || []).length).filter(n => n > 0);
+    const wordsAll = words(clean);
+    const lens = sentences.map(s => (words(s)).length).filter(n => n > 0);
+    const wc = wordsAll.length || 1;
 
-    const avgLen = lens.reduce((a, b) => a + b, 0) / (lens.length || 1);
-    const variance = lens.reduce((a, b) => a + (b - avgLen) ** 2, 0) / (lens.length || 1);
-    const stdDev = Math.sqrt(variance);
-    const cv = avgLen > 0 ? stdDev / avgLen : 0; // coefficient of variation -> "burstiness"
+    // 1. sentence-length burstiness (coefficient of variation)
+    const avgLen = mean(lens);
+    const sd = stdev(lens);
+    const cv = avgLen > 0 ? sd / avgLen : 0;
 
+    // 2. lexical diversity (type-token ratio)
     const uniqueWords = new Set(wordsAll);
     const lexDiversity = wordsAll.length > 0 ? uniqueWords.size / wordsAll.length : 0;
 
-    let clicheHits = [];
+    // 3. cliché phrase density (per 100 words)
     const lowerText = clean.toLowerCase();
-    CLICHE_PHRASES.forEach(p => {
-      if (lowerText.includes(p)) clicheHits.push(p);
+    const clicheHits = CLICHE_PHRASES.filter(p => lowerText.includes(p));
+    const clicheDensity = (clicheHits.length / wc) * 100;
+
+    // 4. transition-word density (per 100 words)
+    const transitionHits = TRANSITION_WORDS.filter(p => lowerText.includes(p));
+    const transitionDensity = (transitionHits.length / wc) * 100;
+
+    // 5. function-word ratio variance across chunks (style uniformity)
+    const chunkSize = 40;
+    const chunks = [];
+    for (let i = 0; i < wordsAll.length; i += chunkSize) chunks.push(wordsAll.slice(i, i + chunkSize));
+    const chunkRatios = chunks.filter(c => c.length >= 15).map(c => {
+      const fw = c.filter(w => FUNCTION_WORDS.has(w)).length;
+      return fw / c.length;
     });
+    const fwMean = mean(chunkRatios);
+    const fwCv = fwMean > 0 && chunkRatios.length >= 2 ? stdev(chunkRatios) / fwMean : null;
 
-    // Repeated sentence starters
-    const starters = sentences.map(s => (s.trim().split(/\s+/)[0] || "").toLowerCase());
-    const starterCounts = {};
-    starters.forEach(w => { starterCounts[w] = (starterCounts[w] || 0) + 1; });
-    const repeatedStarters = Object.entries(starterCounts).filter(([w, c]) => c >= 3 && w.length > 2);
+    // 6. passive voice ratio (rough regex proxy)
+    const passiveMatches = clean.match(/\b(am|is|are|was|were|be|been|being)\s+\w+(ed|en)\b/gi) || [];
+    const passiveRatio = sentences.length > 0 ? passiveMatches.length / sentences.length : 0;
 
-    // Scoring (0-100, higher = more likely AI-generated)
-    let score = 0;
-    // Low sentence-length variety (uniform sentence length) is a strong AI signal
-    if (cv < 0.25) score += 30;
-    else if (cv < 0.4) score += 15;
-    else score += 2;
-
-    // Cliche phrase density
-    const clicheScore = Math.min(35, clicheHits.length * 7);
-    score += clicheScore;
-
-    // Lexical diversity: AI text often has moderate-high diversity but very formulaic;
-    // very low diversity (repetitive) also flags
-    if (lexDiversity < 0.4) score += 15;
-    else if (lexDiversity < 0.55) score += 8;
-
-    // Repeated sentence starters
-    score += Math.min(15, repeatedStarters.length * 8);
-
-    // Average sentence length very long & uniform (formal AI tone)
-    if (avgLen > 22 && cv < 0.35) score += 10;
-
-    score = Math.max(2, Math.min(98, Math.round(score)));
-
-    result.score = score;
-    result.avgLen = avgLen.toFixed(1);
-    result.burstiness = cv.toFixed(2);
-    result.lexDiversity = (lexDiversity * 100).toFixed(0) + "%";
-    result.clicheCount = clicheHits.length;
-
-    if (clicheHits.length > 0) {
-      result.flags.push(`Contains ${clicheHits.length} common AI-style phrase${clicheHits.length > 1 ? "s" : ""}: "${clicheHits.slice(0, 5).join('", "')}"${clicheHits.length > 5 ? ", ..." : ""}`);
-    }
-    if (cv < 0.25) {
-      result.flags.push("Sentence lengths are unusually uniform (low burstiness) — a common trait of machine-generated text.");
-    }
-    if (repeatedStarters.length > 0) {
-      result.flags.push(`Repeated sentence-starting words: ${repeatedStarters.map(([w]) => `"${w}"`).join(", ")}.`);
-    }
-    if (lexDiversity < 0.4 && wordsAll.length > 20) {
-      result.flags.push("Low vocabulary variety relative to text length.");
-    }
-    if (result.flags.length === 0) {
-      result.flags.push("No strong AI-style signals detected — text reads with natural variation.");
+    // 7. punctuation entropy (variety of punctuation used)
+    const puncChars = clean.match(/[.,;:!?—-]/g) || [];
+    const puncCounts = {};
+    puncChars.forEach(c => { puncCounts[c] = (puncCounts[c] || 0) + 1; });
+    const puncTotal = puncChars.length;
+    let puncEntropy = 0;
+    if (puncTotal > 0) {
+      Object.values(puncCounts).forEach(n => {
+        const p = n / puncTotal;
+        puncEntropy -= p * Math.log2(p);
+      });
+      const maxEntropy = Math.log2(Object.keys(puncCounts).length || 1) || 1;
+      puncEntropy = maxEntropy > 0 ? puncEntropy / maxEntropy : 0;
     }
 
-    // Mark sentences containing cliche phrases for highlighting
-    sentences.forEach((s, i) => {
-      const ls = s.toLowerCase();
-      if (CLICHE_PHRASES.some(p => ls.includes(p))) result.flaggedIdx.add(i);
-    });
+    // 8. em dash density (per 100 words) — a well-known modern LLM tell
+    const emDashCount = (clean.match(/—/g) || []).length;
+    const emDashDensity = (emDashCount / wc) * 100;
 
-    return result;
+    // 9. repeated sentence-opener bigrams
+    const openers = sentences.map(s => s.trim().split(/\s+/).slice(0, 2).join(" ").toLowerCase());
+    const openerCounts = {};
+    openers.forEach(o => { openerCounts[o] = (openerCounts[o] || 0) + 1; });
+    const repeatedOpeners = Object.entries(openerCounts).filter(([o, c]) => c >= 2 && o.length > 3);
+
+    // 10. rare / formal word ratio (long Latinate words)
+    const rareWords = wordsAll.filter(w => w.length >= 9);
+    const rareRatio = wordsAll.length > 0 ? rareWords.length / wordsAll.length : 0;
+
+    return {
+      sentences, wordsAll, wc, avgLen, cv, lexDiversity, clicheHits, clicheDensity,
+      transitionHits, transitionDensity, fwCv, passiveRatio, puncEntropy, emDashDensity,
+      repeatedOpeners, rareRatio
+    };
+  }
+
+  function scoreFromFeatures(f) {
+    const bd = []; // breakdown: {label, points, max}
+
+    // Sentence-length burstiness (low variety = AI-like) — max 22
+    let p = f.cv < 0.25 ? 22 : f.cv < 0.4 ? 12 : f.cv < 0.55 ? 4 : 0;
+    bd.push({ label: "Sentence rhythm", points: p, max: 22 });
+
+    // Cliché phrase density — max 20
+    p = clamp(f.clicheDensity * 5, 0, 20);
+    bd.push({ label: "Cliché phrases", points: p, max: 20 });
+
+    // Function-word ratio uniformity — max 12
+    p = f.fwCv === null ? 4 : f.fwCv < 0.12 ? 12 : f.fwCv < 0.22 ? 6 : 0;
+    bd.push({ label: "Style uniformity", points: p, max: 12 });
+
+    // Transition-word density — max 10
+    p = clamp(f.transitionDensity * 3, 0, 10);
+    bd.push({ label: "Transition words", points: p, max: 10 });
+
+    // Passive voice — max 8
+    p = clamp(f.passiveRatio * 35, 0, 8);
+    bd.push({ label: "Passive voice", points: p, max: 8 });
+
+    // Low punctuation variety — max 8
+    p = clamp((1 - f.puncEntropy) * 8, 0, 8);
+    bd.push({ label: "Punctuation variety", points: p, max: 8 });
+
+    // Em dash overuse — max 6
+    p = f.emDashDensity > 3 ? 6 : f.emDashDensity > 1.2 ? 3 : 0;
+    bd.push({ label: "Em dash usage", points: p, max: 6 });
+
+    // Repeated sentence openers — max 8
+    p = clamp(f.repeatedOpeners.length * 4, 0, 8);
+    bd.push({ label: "Repeated openers", points: p, max: 8 });
+
+    // Lexical diversity extremes — max 6
+    p = f.lexDiversity < 0.4 ? 6 : f.lexDiversity < 0.55 ? 3 : 0;
+    bd.push({ label: "Vocabulary variety", points: p, max: 6 });
+
+    const total = bd.reduce((a, b) => a + b.points, 0);
+    const score = clamp(Math.round(total), 2, 98);
+    return { score, breakdown: bd };
+  }
+
+  function buildFlags(f) {
+    const flags = [];
+    if (f.clicheHits.length > 0) {
+      flags.push(`Contains ${f.clicheHits.length} common AI-style phrase${f.clicheHits.length > 1 ? "s" : ""}: "${f.clicheHits.slice(0, 5).join('", "')}"${f.clicheHits.length > 5 ? ", ..." : ""}`);
+    }
+    if (f.cv < 0.25) flags.push("Sentence lengths are unusually uniform (low burstiness) — common in machine-generated text.");
+    if (f.repeatedOpeners.length > 0) flags.push(`Repeated sentence openers: ${f.repeatedOpeners.slice(0,4).map(([o]) => `"${o}"`).join(", ")}.`);
+    if (f.transitionDensity > 3) flags.push("Heavy use of formal transition words (furthermore, moreover, therefore...).");
+    if (f.emDashDensity > 1.2) flags.push("Notable em dash (—) usage — a frequently observed trait in modern LLM output.");
+    if (f.passiveRatio > 0.25) flags.push("Elevated passive-voice construction rate.");
+    if (f.fwCv !== null && f.fwCv < 0.12) flags.push("Very consistent function-word ratio across the text (low stylistic variance).");
+    if (f.lexDiversity < 0.4 && f.wc > 20) flags.push("Low vocabulary variety relative to text length.");
+    if (flags.length === 0) flags.push("No strong AI-style signals detected — text reads with natural variation.");
+    return flags;
+  }
+
+  function analyze(text) {
+    const clean = text.trim();
+    if (!clean) return { score: 0, breakdown: [], flags: ["No text provided."], method: "heuristic" };
+    const f = extractFeatures(clean);
+    const { score, breakdown } = scoreFromFeatures(f);
+    const flags = buildFlags(f);
+    return { score, breakdown, flags, method: "heuristic", features: f };
   }
 
   function verdictFor(score) {
@@ -555,7 +719,7 @@
   }
 
   function setGauge(arcEl, labelEl, score, color) {
-    const circumference = 226; // 2*pi*36 ≈ 226.2
+    const circumference = 226;
     const offset = circumference - (score / 100) * circumference;
     arcEl.style.stroke = color;
     arcEl.style.transition = "stroke-dashoffset 0.6s ease, stroke 0.3s ease";
@@ -563,7 +727,78 @@
     labelEl.textContent = score + "%";
   }
 
-  // ---------- Humanizer ----------
+  // ==================================================================
+  // ML deep-scan (perplexity + burstiness via an in-browser language model)
+  // ==================================================================
+  let mlPipelinePromise = null;
+
+  function ppxToScore(ppx) {
+    return 100 / (1 + Math.exp((ppx - 30) / 8));
+  }
+  function burstToScore(b) {
+    return 100 / (1 + Math.exp((b - 3.5) / 1.0));
+  }
+
+  async function loadMlModel(onProgress) {
+    if (!mlPipelinePromise) {
+      mlPipelinePromise = (async () => {
+        const mod = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2");
+        const { AutoTokenizer, AutoModelForCausalLM } = mod;
+        const modelId = "Xenova/distilgpt2";
+        const progressCb = (p) => {
+          if (onProgress && p && p.status === "progress") {
+            onProgress(p.file || "model", p.progress || 0);
+          }
+        };
+        const tokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: progressCb });
+        const model = await AutoModelForCausalLM.from_pretrained(modelId, { dtype: "q8", progress_callback: progressCb });
+        return { tokenizer, model };
+      })();
+    }
+    return mlPipelinePromise;
+  }
+
+  async function computePerplexity(text, tokenizer, model) {
+    const enc = tokenizer(text, { truncation: true, max_length: 384 });
+    const output = await model({ input_ids: enc.input_ids, attention_mask: enc.attention_mask });
+    const logits = output.logits;
+    const dims = logits.dims; // [1, seqLen, vocabSize]
+    const seqLen = dims[1];
+    const vocabSize = dims[2];
+    const data = logits.data;
+    const inputIds = enc.input_ids.data;
+
+    const nlls = [];
+    for (let i = 0; i < seqLen - 1; i++) {
+      const offset = i * vocabSize;
+      let maxLogit = -Infinity;
+      for (let v = 0; v < vocabSize; v++) {
+        const val = data[offset + v];
+        if (val > maxLogit) maxLogit = val;
+      }
+      let sumExp = 0;
+      for (let v = 0; v < vocabSize; v++) sumExp += Math.exp(data[offset + v] - maxLogit);
+      const targetId = Number(inputIds[i + 1]);
+      const targetLogit = data[offset + targetId];
+      const logProb = (targetLogit - maxLogit) - Math.log(sumExp);
+      nlls.push(-logProb);
+    }
+    const meanNll = mean(nlls);
+    const perplexity = Math.exp(meanNll);
+    const burstiness = stdev(nlls);
+    return { perplexity, burstiness, tokenCount: seqLen };
+  }
+
+  async function deepScan(text, onProgress) {
+    const { tokenizer, model } = await loadMlModel(onProgress);
+    const { perplexity, burstiness, tokenCount } = await computePerplexity(text, tokenizer, model);
+    const mlScore = clamp(Math.round(0.65 * ppxToScore(perplexity) + 0.35 * burstToScore(burstiness)), 2, 98);
+    return { perplexity, burstiness, mlScore, tokenCount };
+  }
+
+  // ==================================================================
+  // Humanizer
+  // ==================================================================
   function humanize(text) {
     let out = text;
     let changeCount = 0;
@@ -573,75 +808,87 @@
       if (matches) changeCount += matches.length;
       out = out.replace(re, rep);
     });
-
     CONTRACTIONS.forEach(([re, rep]) => {
       const matches = out.match(re);
       if (matches) changeCount += matches.length;
       out = out.replace(re, rep);
     });
 
-    // Split into sentences, vary rhythm, occasionally add a casual connector
     let sentences = splitSentences(out);
     sentences = sentences.map((s, i) => {
       let sent = s.trim();
-
-      // Break up long sentences (>28 words) at a natural conjunction point
-      const words = sent.split(/\s+/);
-      if (words.length > 28) {
-        const midPoint = Math.floor(words.length / 2);
+      const wArr = sent.split(/\s+/);
+      if (wArr.length > 28) {
+        const midPoint = Math.floor(wArr.length / 2);
         let splitAt = -1;
-        for (let j = midPoint - 5; j < midPoint + 5 && j < words.length; j++) {
-          if (j > 0 && /^(and|but|which|so|because)$/i.test(words[j])) { splitAt = j; break; }
+        for (let j = midPoint - 5; j < midPoint + 5 && j < wArr.length; j++) {
+          if (j > 0 && /^(and|but|which|so|because)$/i.test(wArr[j])) { splitAt = j; break; }
         }
         if (splitAt > 0) {
-          const first = words.slice(0, splitAt).join(" ").replace(/[,;]$/, "");
-          let second = words.slice(splitAt).join(" ");
+          const first = wArr.slice(0, splitAt).join(" ").replace(/[,;]$/, "");
+          let second = wArr.slice(splitAt).join(" ");
           second = second.replace(/^(and|but|which|so|because)\s+/i, "");
           second = second.charAt(0).toUpperCase() + second.slice(1);
           sent = first + ". " + second;
           changeCount++;
         }
       }
-
-      // Occasionally prepend a casual connector (not on first sentence, ~1 in 4)
       if (i > 0 && i % 4 === 0 && sent.length > 20) {
         const connector = CONNECTORS[i % CONNECTORS.length];
         sent = connector + sent.charAt(0).toLowerCase() + sent.slice(1);
         changeCount++;
       }
-
       return sent;
     });
 
     out = sentences.join(" ");
-
-    // Reduce triple-adjective / overly formal em-dash usage
     out = out.replace(/—/g, () => (Math.random() > 0.5 ? ", " : " - "));
-
-    // Collapse extra spaces
     out = out.replace(/\s{2,}/g, " ").trim();
-
     return { text: out, changeCount };
   }
 
-  // ---------- DOM wiring ----------
+  // ==================================================================
+  // DOM wiring
+  // ==================================================================
   const inputText = document.getElementById("inputText");
   const outputText = document.getElementById("outputText");
   const analyzeBtn = document.getElementById("analyzeBtn");
+  const deepScanBtn = document.getElementById("deepScanBtn");
   const clearBtn = document.getElementById("clearBtn");
   const sampleBtn = document.getElementById("sampleBtn");
   const humanizeBtn = document.getElementById("humanizeBtn");
   const copyBtn = document.getElementById("copyBtn");
   const useOutputBtn = document.getElementById("useOutputBtn");
   const toast = document.getElementById("toast");
+  const progressWrap = document.getElementById("progressWrap");
+  const progressLabel = document.getElementById("progressLabel");
+  const progressPct = document.getElementById("progressPct");
+  const progressFill = document.getElementById("progressFill");
 
   function showToast(msg) {
     toast.textContent = msg;
     toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), 1800);
+    setTimeout(() => toast.classList.remove("show"), 2200);
   }
 
-  function renderDetectorResult(result) {
+  function renderBreakdown(breakdown) {
+    const container = document.getElementById("breakdownRows");
+    container.innerHTML = "";
+    breakdown.forEach(row => {
+      const pct = row.max > 0 ? (row.points / row.max) * 100 : 0;
+      const div = document.createElement("div");
+      div.className = "bd-row";
+      div.innerHTML = `
+        <span class="bd-label">${row.label}</span>
+        <span class="bd-bar-bg"><span class="bd-bar-fill" style="width:${pct}%"></span></span>
+        <span class="bd-val">${row.points}/${row.max}</span>
+      `;
+      container.appendChild(div);
+    });
+  }
+
+  function renderDetectorResult(result, opts) {
+    opts = opts || {};
     const block = document.getElementById("detectorResult");
     block.classList.add("show");
     const v = verdictFor(result.score);
@@ -649,10 +896,29 @@
     document.getElementById("verdictTitle").textContent = v.title;
     document.getElementById("verdictTitle").style.color = v.color;
     document.getElementById("verdictSub").textContent = v.sub;
-    document.getElementById("mAvgLen").textContent = result.avgLen + " words";
-    document.getElementById("mBurst").textContent = result.burstiness < 0.25 ? "Low (" + result.burstiness + ")" : result.burstiness < 0.4 ? "Medium (" + result.burstiness + ")" : "High (" + result.burstiness + ")";
-    document.getElementById("mLex").textContent = result.lexDiversity;
-    document.getElementById("mCliche").textContent = result.clicheCount;
+
+    const methodTag = document.getElementById("methodTag");
+    if (result.method === "combined") {
+      methodTag.textContent = "Heuristics + ML (deep scan)";
+      methodTag.style.display = "inline-block";
+    } else {
+      methodTag.textContent = "Heuristics only";
+      methodTag.style.display = "inline-block";
+    }
+
+    if (result.breakdown && result.breakdown.length) {
+      document.getElementById("breakdownBlock").style.display = "block";
+      renderBreakdown(result.breakdown);
+    }
+
+    const mlMetrics = document.getElementById("mlMetrics");
+    if (result.ml) {
+      mlMetrics.style.display = "grid";
+      document.getElementById("mPerplexity").textContent = result.ml.perplexity.toFixed(1);
+      document.getElementById("mMlBurst").textContent = result.ml.burstiness.toFixed(2);
+    } else {
+      mlMetrics.style.display = "none";
+    }
 
     const flagsBlock = document.getElementById("flagsBlock");
     const flagsList = document.getElementById("flagsList");
@@ -663,10 +929,10 @@
       flagsList.appendChild(li);
     });
     flagsBlock.style.display = "block";
-    return result;
   }
 
   let lastScore = null;
+  let lastHeuristic = null;
 
   analyzeBtn.addEventListener("click", () => {
     const text = inputText.value;
@@ -675,11 +941,64 @@
     analyzeBtn.innerHTML = '<span class="spinner"></span>Analyzing...';
     setTimeout(() => {
       const result = analyze(text);
+      lastHeuristic = result;
       renderDetectorResult(result);
       lastScore = result.score;
       analyzeBtn.disabled = false;
-      analyzeBtn.textContent = "Analyze Text";
-    }, 350);
+      analyzeBtn.textContent = "Quick Analyze";
+    }, 300);
+  });
+
+  deepScanBtn.addEventListener("click", async () => {
+    const text = inputText.value;
+    if (!text.trim()) { showToast("Paste some text first."); return; }
+    deepScanBtn.disabled = true;
+    analyzeBtn.disabled = true;
+    deepScanBtn.innerHTML = '<span class="spinner"></span>Working...';
+    progressWrap.classList.add("show");
+    progressLabel.textContent = "Preparing model...";
+    progressFill.style.width = "0%";
+    progressPct.textContent = "0%";
+
+    try {
+      const heuristic = analyze(text);
+      const ml = await deepScan(text, (file, frac) => {
+        const pct = Math.round((frac || 0) * 100);
+        progressLabel.textContent = "Downloading " + file;
+        progressFill.style.width = pct + "%";
+        progressPct.textContent = pct + "%";
+      });
+      progressLabel.textContent = "Running perplexity analysis...";
+      progressFill.style.width = "100%";
+      progressPct.textContent = "100%";
+
+      const combinedScore = clamp(Math.round(0.4 * heuristic.score + 0.6 * ml.mlScore), 2, 98);
+      const combined = {
+        score: combinedScore,
+        breakdown: heuristic.breakdown,
+        flags: heuristic.flags.concat([
+          `ML perplexity: ${ml.perplexity.toFixed(1)} (lower ≈ more predictable / AI-like text for this model).`,
+          `ML burstiness: ${ml.burstiness.toFixed(2)} (lower ≈ more uniform token-level predictability).`,
+          "ML sub-score uses a small general-purpose model (distilgpt2) as a proxy — not calibrated against a labeled dataset, so treat it as directional."
+        ]),
+        method: "combined",
+        ml
+      };
+      renderDetectorResult(combined);
+      lastScore = combined.score;
+      showToast("Deep scan complete.");
+    } catch (err) {
+      console.error(err);
+      showToast("Deep scan unavailable (offline, blocked, or unsupported browser) — showing heuristic score instead.");
+      const heuristic = lastHeuristic || analyze(text);
+      renderDetectorResult(heuristic);
+      lastScore = heuristic.score;
+    } finally {
+      setTimeout(() => progressWrap.classList.remove("show"), 600);
+      deepScanBtn.disabled = false;
+      analyzeBtn.disabled = false;
+      deepScanBtn.textContent = "Deep Scan (ML)";
+    }
   });
 
   clearBtn.addEventListener("click", () => {
@@ -688,6 +1007,7 @@
     outputText.value = "";
     document.getElementById("humanizerResult").classList.remove("show");
     lastScore = null;
+    lastHeuristic = null;
   });
 
   sampleBtn.addEventListener("click", () => {
