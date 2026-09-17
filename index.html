@@ -277,6 +277,65 @@
   .flags ul { margin: 6px 0 0; padding-left: 18px; }
   .flags li { margin-bottom: 4px; }
 
+  .dropzone {
+    border: 1.5px dashed var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    background: var(--panel-2);
+    transition: border-color 0.15s ease, background 0.15s ease;
+    margin-bottom: 10px;
+  }
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: rgba(124, 157, 255, 0.06);
+  }
+  .dz-icon { font-size: 1.4rem; margin-bottom: 2px; }
+  .dz-text { font-size: 0.85rem; color: var(--text); }
+  .dz-link { color: var(--accent); text-decoration: underline; }
+  .dz-sub { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+  .dz-file-info {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin: -4px 0 10px;
+    display: none;
+  }
+
+  .sections {
+    margin-top: 12px;
+    font-size: 0.78rem;
+  }
+  .sections-title {
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .section-item {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-score {
+    flex-shrink: 0;
+    font-weight: 700;
+    font-size: 0.78rem;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .section-snippet {
+    color: var(--muted);
+    font-size: 0.76rem;
+    line-height: 1.35;
+  }
+
   footer {
     text-align: center;
     color: var(--muted);
@@ -324,10 +383,10 @@
 <body>
 <header>
   <h1><span>AI Text Detector</span> &amp; Humanizer</h1>
-  <p>Paste text to estimate how "AI-generated" it reads, then rewrite it to sound more human. Runs entirely in your browser.</p>
+  <p>Upload your project report, thesis chapter, or research paper — or paste text directly — to check how "AI-generated" it reads, section by section.</p>
 </header>
 <div class="disclaimer-bar">
-  ⚠️ This is a research-style estimator (statistical heuristics + an optional in-browser language-model perplexity check), not the proprietary system used by Turnitin or similar institutional tools. Treat scores as directional signals, never as proof.
+  ⚠️ This is a research-style estimator (statistical heuristics + an optional in-browser language-model perplexity check), not the proprietary system used by Turnitin or similar institutional tools. Treat scores as directional signals, never as proof. Your document is processed 100% locally in your browser — it is never uploaded to a server.
 </div>
 
 <div class="container">
@@ -337,7 +396,14 @@
       <h2>🔍 Detector</h2>
       <span class="badge">heuristics + optional ML</span>
     </div>
-    <textarea id="inputText" placeholder="Paste text here to analyze..."></textarea>
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept=".txt,.docx,.pdf" hidden />
+      <div class="dz-icon">📄</div>
+      <div class="dz-text">Drag &amp; drop your paper (.docx, .pdf, .txt) or <span class="dz-link">browse</span></div>
+      <div class="dz-sub">Processed 100% locally — never uploaded anywhere. Max 20MB.</div>
+    </div>
+    <div class="dz-file-info" id="dzFileInfo"></div>
+    <textarea id="inputText" placeholder="...or paste text here to analyze"></textarea>
     <div class="row">
       <button class="btn-primary" id="analyzeBtn">Quick Analyze</button>
       <button class="btn-ml" id="deepScanBtn">Deep Scan (ML)</button>
@@ -380,6 +446,11 @@
       <div class="flags" id="flagsBlock" style="display:none;">
         <strong>Notes:</strong>
         <ul id="flagsList"></ul>
+      </div>
+
+      <div class="sections" id="sectionsBlock" style="display:none;">
+        <div class="sections-title">Most AI-flagged sections</div>
+        <div id="sectionsRows"></div>
       </div>
     </div>
   </div>
@@ -428,9 +499,16 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function () {
   "use strict";
+
+  if (window.pdfjsLib) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
 
   // ==================================================================
   // Shared word lists
@@ -563,6 +641,66 @@
     return Math.sqrt(mean(arr.map(x => (x - m) ** 2)));
   }
   function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+  function splitParagraphs(text) {
+    return text.split(/\n{2,}/).map(p => p.trim()).filter(p => words(p).length >= 25);
+  }
+
+  function chunkText(text, maxWords) {
+    const sentences = splitSentences(text);
+    const chunks = [];
+    let current = [];
+    let currentWords = 0;
+    sentences.forEach(s => {
+      const wc = words(s).length;
+      if (currentWords + wc > maxWords && current.length > 0) {
+        chunks.push(current.join(" "));
+        current = [];
+        currentWords = 0;
+      }
+      current.push(s);
+      currentWords += wc;
+    });
+    if (current.length) chunks.push(current.join(" "));
+    return chunks;
+  }
+
+  function snippet(text, len) {
+    const t = text.trim().replace(/\s+/g, " ");
+    return t.length > len ? t.slice(0, len) + "…" : t;
+  }
+
+  // ==================================================================
+  // Document upload — parsed 100% client-side, nothing leaves the browser
+  // ==================================================================
+  async function extractTextFromFile(file) {
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".txt")) {
+      return await file.text();
+    }
+    if (name.endsWith(".docx")) {
+      if (!window.mammoth) throw new Error("DOCX reader failed to load — check your internet connection.");
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await window.mammoth.extractRawText({ arrayBuffer });
+      return result.value;
+    }
+    if (name.endsWith(".pdf")) {
+      if (!window.pdfjsLib) throw new Error("PDF reader failed to load — check your internet connection.");
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let text = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(it => it.str).join(" ") + "\n\n";
+      }
+      return text;
+    }
+    if (name.endsWith(".doc")) {
+      throw new Error("Old .doc format isn't supported — please save as .docx or .pdf and try again.");
+    }
+    throw new Error("Unsupported file type. Please upload .docx, .pdf, or .txt.");
+  }
 
   // ==================================================================
   // Heuristic feature extraction
@@ -742,7 +880,7 @@
   async function loadMlModel(onProgress) {
     if (!mlPipelinePromise) {
       mlPipelinePromise = (async () => {
-        const mod = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2");
+        const mod = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js");
         const { AutoTokenizer, AutoModelForCausalLM } = mod;
         const modelId = "Xenova/distilgpt2";
         const progressCb = (p) => {
@@ -789,11 +927,33 @@
     return { perplexity, burstiness, tokenCount: seqLen };
   }
 
-  async function deepScan(text, onProgress) {
-    const { tokenizer, model } = await loadMlModel(onProgress);
-    const { perplexity, burstiness, tokenCount } = await computePerplexity(text, tokenizer, model);
-    const mlScore = clamp(Math.round(0.65 * ppxToScore(perplexity) + 0.35 * burstToScore(burstiness)), 2, 98);
-    return { perplexity, burstiness, mlScore, tokenCount };
+  const MAX_DEEP_SCAN_CHUNKS = 40; // ~40 * 300 words ≈ 12,000 words per scan
+
+  async function deepScanDocument(text, onProgress) {
+    const { tokenizer, model } = await loadMlModel((file, frac) => onProgress({ phase: "download", file, frac }));
+
+    let chunks = chunkText(text, 300);
+    let truncated = false;
+    if (chunks.length > MAX_DEEP_SCAN_CHUNKS) {
+      chunks = chunks.slice(0, MAX_DEEP_SCAN_CHUNKS);
+      truncated = true;
+    }
+
+    const chunkResults = [];
+    for (let i = 0; i < chunks.length; i++) {
+      onProgress({ phase: "analyze", index: i + 1, total: chunks.length });
+      const { perplexity, burstiness, tokenCount } = await computePerplexity(chunks[i], tokenizer, model);
+      const mlScore = clamp(Math.round(0.65 * ppxToScore(perplexity) + 0.35 * burstToScore(burstiness)), 2, 98);
+      chunkResults.push({ index: i, text: chunks[i], perplexity, burstiness, mlScore, tokenCount });
+    }
+
+    const totalTokens = chunkResults.reduce((a, c) => a + c.tokenCount, 0) || 1;
+    const perplexity = chunkResults.reduce((a, c) => a + c.perplexity * c.tokenCount, 0) / totalTokens;
+    const burstiness = chunkResults.reduce((a, c) => a + c.burstiness * c.tokenCount, 0) / totalTokens;
+    const mlScore = clamp(Math.round(chunkResults.reduce((a, c) => a + c.mlScore * c.tokenCount, 0) / totalTokens), 2, 98);
+    const topChunks = [...chunkResults].sort((a, b) => b.mlScore - a.mlScore).slice(0, 3);
+
+    return { perplexity, burstiness, mlScore, chunkResults, topChunks, truncated, chunkCount: chunks.length };
   }
 
   // ==================================================================
@@ -864,6 +1024,9 @@
   const progressLabel = document.getElementById("progressLabel");
   const progressPct = document.getElementById("progressPct");
   const progressFill = document.getElementById("progressFill");
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("fileInput");
+  const dzFileInfo = document.getElementById("dzFileInfo");
 
   function showToast(msg) {
     toast.textContent = msg;
@@ -885,6 +1048,27 @@
       `;
       container.appendChild(div);
     });
+  }
+
+  function renderSections(sections) {
+    const block = document.getElementById("sectionsBlock");
+    const rows = document.getElementById("sectionsRows");
+    if (!sections || sections.length === 0) {
+      block.style.display = "none";
+      return;
+    }
+    rows.innerHTML = "";
+    sections.forEach(sec => {
+      const v = verdictFor(sec.score);
+      const div = document.createElement("div");
+      div.className = "section-item";
+      div.innerHTML = `
+        <span class="section-score" style="color:${v.color};border-color:${v.color}">${sec.score}%</span>
+        <span class="section-snippet">${snippet(sec.text, 160)}</span>
+      `;
+      rows.appendChild(div);
+    });
+    block.style.display = "block";
   }
 
   function renderDetectorResult(result, opts) {
@@ -929,6 +1113,7 @@
       flagsList.appendChild(li);
     });
     flagsBlock.style.display = "block";
+    renderSections(result.sections);
   }
 
   let lastScore = null;
@@ -941,6 +1126,13 @@
     analyzeBtn.innerHTML = '<span class="spinner"></span>Analyzing...';
     setTimeout(() => {
       const result = analyze(text);
+      const paragraphs = splitParagraphs(text);
+      if (paragraphs.length >= 3) {
+        result.sections = paragraphs
+          .map(p => ({ text: p, score: analyze(p).score }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+      }
       lastHeuristic = result;
       renderDetectorResult(result);
       lastScore = result.score;
@@ -962,27 +1154,38 @@
 
     try {
       const heuristic = analyze(text);
-      const ml = await deepScan(text, (file, frac) => {
-        const pct = Math.round((frac || 0) * 100);
-        progressLabel.textContent = "Downloading " + file;
-        progressFill.style.width = pct + "%";
-        progressPct.textContent = pct + "%";
+      const ml = await deepScanDocument(text, (p) => {
+        if (p.phase === "download") {
+          const pct = Math.round((p.frac || 0) * 100);
+          progressLabel.textContent = "Downloading model: " + p.file;
+          progressFill.style.width = pct + "%";
+          progressPct.textContent = pct + "%";
+        } else {
+          const pct = Math.round((p.index / p.total) * 100);
+          progressLabel.textContent = `Analyzing section ${p.index}/${p.total}`;
+          progressFill.style.width = pct + "%";
+          progressPct.textContent = pct + "%";
+        }
       });
-      progressLabel.textContent = "Running perplexity analysis...";
-      progressFill.style.width = "100%";
-      progressPct.textContent = "100%";
 
       const combinedScore = clamp(Math.round(0.4 * heuristic.score + 0.6 * ml.mlScore), 2, 98);
+      const flags = heuristic.flags.concat([
+        `ML perplexity: ${ml.perplexity.toFixed(1)} (lower ≈ more predictable / AI-like text for this model).`,
+        `ML burstiness: ${ml.burstiness.toFixed(2)} (lower ≈ more uniform token-level predictability).`,
+        `Deep scan covered ${ml.chunkCount} section${ml.chunkCount > 1 ? "s" : ""} of the document (~300 words each).`,
+        "ML sub-score uses a small general-purpose model (distilgpt2) as a proxy — not calibrated against a labeled dataset, so treat it as directional."
+      ]);
+      if (ml.truncated) {
+        flags.push(`Document is longer than the deep-scan cap — only the first ${MAX_DEEP_SCAN_CHUNKS * 300} words (~${ml.chunkCount} sections) were analyzed.`);
+      }
+
       const combined = {
         score: combinedScore,
         breakdown: heuristic.breakdown,
-        flags: heuristic.flags.concat([
-          `ML perplexity: ${ml.perplexity.toFixed(1)} (lower ≈ more predictable / AI-like text for this model).`,
-          `ML burstiness: ${ml.burstiness.toFixed(2)} (lower ≈ more uniform token-level predictability).`,
-          "ML sub-score uses a small general-purpose model (distilgpt2) as a proxy — not calibrated against a labeled dataset, so treat it as directional."
-        ]),
+        flags,
         method: "combined",
-        ml
+        ml,
+        sections: ml.chunkCount >= 2 ? ml.topChunks.map(c => ({ text: c.text, score: c.mlScore })) : null
       };
       renderDetectorResult(combined);
       lastScore = combined.score;
@@ -1006,8 +1209,46 @@
     document.getElementById("detectorResult").classList.remove("show");
     outputText.value = "";
     document.getElementById("humanizerResult").classList.remove("show");
+    dzFileInfo.style.display = "none";
+    fileInput.value = "";
     lastScore = null;
     lastHeuristic = null;
+  });
+
+  async function handleFile(file) {
+    const maxSize = 20 * 1024 * 1024;
+    if (file.size > maxSize) { showToast("File too large — max 20MB."); return; }
+    dzFileInfo.style.display = "block";
+    dzFileInfo.innerHTML = '<span class="spinner"></span>Reading ' + file.name + '...';
+    try {
+      const raw = await extractTextFromFile(file);
+      const cleaned = raw.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      if (!cleaned) {
+        showToast("Couldn't find readable text in that file (it may be a scanned/image-only PDF).");
+        dzFileInfo.style.display = "none";
+        return;
+      }
+      inputText.value = cleaned;
+      const wc = words(cleaned).length;
+      dzFileInfo.innerHTML = `✅ <strong>${file.name}</strong> — ${wc.toLocaleString()} words loaded`;
+      showToast("Document loaded. Click Quick Analyze or Deep Scan.");
+    } catch (err) {
+      console.error(err);
+      dzFileInfo.style.display = "none";
+      showToast(err.message || "Couldn't read that file.");
+    }
+  }
+
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("drag-over"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag-over"));
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("drag-over");
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length) handleFile(fileInput.files[0]);
   });
 
   sampleBtn.addEventListener("click", () => {
